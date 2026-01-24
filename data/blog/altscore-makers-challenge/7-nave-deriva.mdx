@@ -1,13 +1,222 @@
 ---
 title: Nave a la deriva - Interview challenge solution
-date: '2025-03-11'
+date: '2025-04-02'
 tags: ['tech interviews', 'algorithms', 'altscore']
 draft: false
-listed: false
-summary: 'Solution to the seventh AltScore programming challenge'
+listed: true
+summary: 'Solution to the seventh AltScore programming challenge: Create API endpoints for a damaged spaceship repair system.'
 ---
+
+**TLDR:** Create two endpoints (`/status` and `/repair-bay`) that work together to report and fix damaged ship systems.
 
 This challenge belongs to a series of programming challenges published by [AltScore](https://www.altscore.ai/).
 You can see the complete list [here](/blog/altscore-makers-challenge/0-reto-altscore). This is the **seventh** challenge.
 
-## Content coming soon... 
+<TOCInline toc={props.toc} />
+
+## Problem Statement
+
+### Nave a la deriva
+
+Tu nave espacial ha sufrido daños críticos y está a la deriva en el espacio profundo. Los sistemas de la nave están fallando
+uno por uno, y necesitas crear un sistema de diagnóstico y reparación.
+
+El sistema de control de la nave requiere dos endpoints:
+
+1. **`/status`** - Debe reportar qué sistema está dañado actualmente
+2. **`/repair-bay`** - Debe proporcionar el código de reparación del sistema dañado
+
+Los sistemas de la nave son:
+- `navigation` - Sistema de navegación
+- `communications` - Sistema de comunicaciones  
+- `life_support` - Soporte vital
+- `engines` - Motores
+- `deflector_shield` - Escudo deflector
+
+Cada sistema tiene un código de reparación único que el técnico de reparaciones necesita para arreglarlo.
+
+**Recursos:**
+- Tu servidor debe estar accesible públicamente
+- Envía la URL de tu servidor aquí: `[POST] /v1/s1/e7/solution`
+- ¡No olvides consultar la [Documentación](https://makers-challenge.altscore.ai/docs)!
+
+## Solution
+
+### Understanding the challenge
+
+This challenge is different from the others - instead of calling APIs, we need to **create** APIs that AltScore will call.
+
+The flow is:
+1. AltScore calls our `/status` endpoint
+2. We respond with a random damaged system
+3. AltScore calls our `/repair-bay` endpoint
+4. We respond with an HTML page containing the repair code for that system
+
+The tricky part is that both endpoints need to share state - the repair-bay needs to know which system was reported as damaged.
+
+### Creating the shared state
+
+First, I created a shared state module to keep track of the current damaged system:
+
+```ts
+// app/api/shared/state.ts
+
+export const VALID_SYSTEMS = [
+  'navigation',
+  'communications',
+  'life_support',
+  'engines',
+  'deflector_shield',
+] as const
+
+type ValidSystemName = (typeof VALID_SYSTEMS)[number]
+
+const SYSTEM_CODES: Record<ValidSystemName, string> = {
+  navigation: 'NAV-01',
+  communications: 'COM-02',
+  life_support: 'LIFE-03',
+  engines: 'ENG-04',
+  deflector_shield: 'SHLD-05',
+}
+
+export const getSystemCode = (system: ValidSystemName) => {
+  return SYSTEM_CODES[system]
+}
+
+let currentDamagedSystem: ValidSystemName | null = null
+
+export const setState = (system: ValidSystemName) => {
+  currentDamagedSystem = system
+}
+
+export const getState = (): ValidSystemName | null => {
+  return currentDamagedSystem
+}
+```
+
+### The `/status` endpoint
+
+This endpoint returns a random damaged system and stores it in the shared state:
+
+```ts
+// app/api/status/route.ts
+
+import { NextResponse } from 'next/server'
+import { setState, VALID_SYSTEMS } from '../shared/state'
+
+export async function GET() {
+  const randomSystem = VALID_SYSTEMS[Math.floor(Math.random() * VALID_SYSTEMS.length)]
+  setState(randomSystem)
+
+  return NextResponse.json({
+    damaged_system: randomSystem,
+  })
+}
+```
+
+When called, it responds with:
+
+```json
+{
+  "damaged_system": "engines"
+}
+```
+
+### The `/repair-bay` endpoint
+
+This endpoint returns an HTML page with the repair code inside a div with class `anchor-point`:
+
+```ts
+// app/api/repair-bay/route.ts
+
+import { NextResponse } from 'next/server'
+import { getState, getSystemCode } from '../shared/state'
+
+export async function GET() {
+  const currentSystem = getState()
+
+  if (!currentSystem) {
+    return new NextResponse('No damaged system reported', { status: 400 })
+  }
+
+  const systemCode = getSystemCode(currentSystem)
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Repair</title>
+    </head>
+    <body>
+        <div class="anchor-point">${systemCode}</div>
+    </body>
+    </html>
+  `
+  return new NextResponse(html, {
+    headers: {
+      'Content-Type': 'text/html',
+    },
+  })
+}
+```
+
+The key here is that the repair code must be inside a `<div class="anchor-point">` - this is what AltScore looks for when parsing the response.
+
+### System codes mapping
+
+| System | Code |
+|--------|------|
+| navigation | NAV-01 |
+| communications | COM-02 |
+| life_support | LIFE-03 |
+| engines | ENG-04 |
+| deflector_shield | SHLD-05 |
+
+### Deploying and testing
+
+Since this is a Next.js app deployed on Vercel, the endpoints are automatically available at:
+- `https://yourdomain.com/api/status`
+- `https://yourdomain.com/api/repair-bay`
+
+Testing locally:
+
+```bash
+# First, get the damaged system
+curl http://localhost:3000/api/status
+# {"damaged_system":"life_support"}
+
+# Then, get the repair code
+curl http://localhost:3000/api/repair-bay
+# <!DOCTYPE html>
+# <html>
+# <head><title>Repair</title></head>
+# <body>
+#     <div class="anchor-point">LIFE-03</div>
+# </body>
+# </html>
+```
+
+### Submit the solution
+
+```bash
+curl -X 'POST' \
+  'https://makers-challenge.altscore.ai/v1/s1/e7/solution' \
+  -H 'accept: application/json' \
+  -H 'API-KEY: API-KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "url": "https://yourdomain.vercel.app"
+}'
+```
+
+And the response is:
+
+```json
+{
+  "result": "correct"
+}
+```
+
+> **Important:** The endpoints need to be publicly accessible for AltScore to call them. If you're using Vercel, this works out of the box. If running locally, you'd need something like ngrok.
+
+**TADA!** 🎉

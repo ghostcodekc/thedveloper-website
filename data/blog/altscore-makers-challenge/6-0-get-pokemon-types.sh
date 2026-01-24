@@ -1,6 +1,7 @@
 #!/bin/bash
 
-OUTPUT_FILE="pokemon_types.json"
+# Output file will be created in the current directory
+OUTPUT_FILE="6-pokemon-types.json"
 
 TYPES_URL="https://pokeapi.co/api/v2/type/"
 TYPES_JSON=$(curl -s "$TYPES_URL")

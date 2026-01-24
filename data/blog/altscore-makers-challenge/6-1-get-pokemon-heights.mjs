@@ -7,7 +7,7 @@ async function processPokemon(name, url, typeId, typeName) {
     const height = pokemonData.height
 
     const csvLine = `${name}:${typeId}:${typeName}:${height}\n`
-    writeFileSync('pokemon_heights.csv', csvLine, { flag: 'a' })
+    writeFileSync('6-pokemon-heights.csv', csvLine, { flag: 'a' })
 
     console.log(`Processed ${name}...`)
   } catch (error) {
@@ -20,10 +20,10 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 async function main() {
   console.log('Processing Pokemon data...')
 
-  writeFileSync('pokemon_heights.csv', '')
+  writeFileSync('6-pokemon-heights.csv', '')
 
   try {
-    const typesJson = await import('./pokemon_types.json', { assert: { type: 'json' } }).then(
+    const typesJson = await import('./6-pokemon-types.json', { assert: { type: 'json' } }).then(
       (m) => m.default
     )
 
@@ -41,7 +41,7 @@ async function main() {
       }
     }
 
-    console.log('Done! --> pokemon_heights.csv')
+    console.log('Done! --> 6-pokemon-heights.csv')
   } catch (error) {
     console.error('Error D:', error.message)
   }

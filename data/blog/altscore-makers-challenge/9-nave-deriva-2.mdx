@@ -1,13 +1,180 @@
 ---
 title: Nave a la deriva - Parte 2 - Interview challenge solution
-date: '2025-03-13'
+date: '2025-04-06'
 tags: ['tech interviews', 'algorithms', 'altscore']
 draft: false
-listed: false
-summary: 'Solution to the ninth AltScore programming challenge'
+listed: true
+summary: 'Solution to the ninth AltScore programming challenge: Create a phase change diagram endpoint for spaceship coolant calculations.'
 ---
+
+**TLDR:** Create a `/phase-change-diagram` endpoint that calculates specific volumes for liquid and vapor using linear interpolation based on pressure input.
 
 This challenge belongs to a series of programming challenges published by [AltScore](https://www.altscore.ai/).
 You can see the complete list [here](/blog/altscore-makers-challenge/0-reto-altscore). This is the **ninth** challenge.
 
-## Content coming soon... 
+<TOCInline toc={props.toc} />
+
+## Problem Statement
+
+### Nave a la deriva - Parte 2
+
+¡Tu nave espacial sigue a la deriva! Esta vez, el sistema de refrigeración está fallando y necesitas calcular los valores de cambio de fase del refrigerante.
+
+El sistema de control de la nave necesita un endpoint que, dada una presión, devuelva:
+- El volumen específico del líquido (`specific_volume_liquid`)
+- El volumen específico del vapor (`specific_volume_vapor`)
+
+Estos valores deben calcularse usando interpolación lineal basada en un diagrama de cambio de fase.
+
+**Datos del diagrama:**
+- Presión mínima: 0.05
+- Presión máxima (punto crítico): 10
+- Volumen líquido a presión mínima: 0.00105
+- Volumen líquido a presión máxima: 0.0035
+- Volumen vapor a presión mínima: 30
+- Volumen vapor a presión máxima: 0.0035 (en el punto crítico, líquido = vapor)
+
+**Recursos:**
+- Tu servidor debe estar accesible públicamente
+- Endpoint: `GET /phase-change-diagram?pressure=X`
+- Envía la URL de tu servidor aquí: `[POST] /v1/s1/e9/solution`
+- ¡No olvides consultar la [Documentación](https://makers-challenge.altscore.ai/docs)!
+
+## Solution
+
+### Understanding the thermodynamics
+
+This challenge is based on real thermodynamics concepts. A phase change diagram shows how a substance transitions between liquid and vapor states at different pressures.
+
+At the **critical point**, the liquid and vapor phases become indistinguishable - they have the same specific volume.
+
+The key insight is that we need to use **linear interpolation** to calculate values between the known points.
+
+### Linear interpolation formula
+
+The interpolation formula (also known as "la pendiente" or slope formula):
+
+$$
+v = v_1 + \frac{(P - P_1) \times (v_2 - v_1)}{P_2 - P_1}
+$$
+
+Where:
+- $P$ = input pressure
+- $P_1$ = minimum pressure (0.05)
+- $P_2$ = maximum pressure (10)
+- $v_1$ = volume at minimum pressure
+- $v_2$ = volume at maximum pressure
+
+### The implementation
+
+```ts
+// app/api/phase-change-diagram/route.ts
+
+import { NextRequest, NextResponse } from 'next/server'
+
+const lowestPressure = 0.05,
+  // Fluid
+  fluidVolume1 = 0.00105,
+  // Gas
+  gasVolume1 = 30,
+  // Critical point
+  highestPressure = 10,
+  // Fluid
+  fluidVolume2 = 0.0035,
+  // Gas
+  gasVolume2 = 0.0035
+
+// Linear interpolation function
+function interpolate(pressure: number, P1: number, P2: number, v1: number, v2: number): number {
+  return v1 + ((pressure - P1) * (v2 - v1)) / (P2 - P1)
+}
+
+function getSpecificVolumes(pressure: number) {
+  // Limits according to the diagram
+  if (pressure >= highestPressure) {
+    return { specific_volume_liquid: fluidVolume2, specific_volume_vapor: gasVolume2 }
+  }
+  if (pressure <= lowestPressure) {
+    return { specific_volume_liquid: fluidVolume1, specific_volume_vapor: gasVolume1 }
+  }
+
+  const volumeF = interpolate(pressure, lowestPressure, highestPressure, fluidVolume1, fluidVolume2)
+  const volumeG = interpolate(pressure, lowestPressure, highestPressure, gasVolume1, gasVolume2)
+
+  return { specific_volume_liquid: volumeF, specific_volume_vapor: volumeG }
+}
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const pressureParam = searchParams.get('pressure')
+
+  // 400 if missing params or outside the ranges
+  if (!pressureParam) {
+    return NextResponse.json({ error: "Missing 'pressure' parameter" }, { status: 400 })
+  }
+
+  const pressure = parseFloat(pressureParam)
+  if (isNaN(pressure) || pressure < lowestPressure || pressure > highestPressure) {
+    return NextResponse.json({ error: "Invalid 'pressure' value" }, { status: 400 })
+  }
+
+  const result = getSpecificVolumes(pressure)
+
+  return NextResponse.json(result, { status: 200 })
+}
+```
+
+### Testing the endpoint
+
+```bash
+# At minimum pressure
+curl "http://localhost:3000/api/phase-change-diagram?pressure=0.05"
+# {"specific_volume_liquid":0.00105,"specific_volume_vapor":30}
+
+# At critical point (max pressure)
+curl "http://localhost:3000/api/phase-change-diagram?pressure=10"
+# {"specific_volume_liquid":0.0035,"specific_volume_vapor":0.0035}
+
+# At midpoint pressure
+curl "http://localhost:3000/api/phase-change-diagram?pressure=5"
+# {"specific_volume_liquid":0.0022739..,"specific_volume_vapor":15.0012...}
+```
+
+### Key points
+
+1. **Boundary conditions**: At the limits (0.05 and 10), return exact values
+2. **Linear interpolation**: Between limits, interpolate linearly
+3. **Critical point**: At maximum pressure, liquid and vapor volumes are equal (0.0035)
+4. **Validation**: Return 400 for invalid or missing pressure values
+
+### The thermodynamics behind it
+
+In a real phase change diagram:
+- **Below critical pressure**: Liquid and vapor coexist with different densities
+- **At critical pressure**: The distinction between liquid and vapor disappears
+- **Specific volume**: Inverse of density (volume per unit mass)
+
+The "Rick and Morty reference" in my code comments refers to the fact that the values seemed arbitrary at first, like something from a sci-fi show, but they follow real thermodynamic principles!
+
+### Submit the solution
+
+```bash
+curl -X 'POST' \
+  'https://makers-challenge.altscore.ai/v1/s1/e9/solution' \
+  -H 'accept: application/json' \
+  -H 'API-KEY: API-KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "url": "https://yourdomain.vercel.app"
+}'
+```
+
+And the response is:
+
+```json
+{
+  "result": "correct"
+}
+```
+
+**TADA!** 🎉

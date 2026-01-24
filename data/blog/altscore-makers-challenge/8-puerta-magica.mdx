@@ -1,13 +1,228 @@
 ---
 title: El Hechizo de La puerta mágica - Interview challenge solution
-date: '2025-03-12'
+date: '2025-04-04'
 tags: ['tech interviews', 'algorithms', 'altscore']
 draft: false
-listed: false
-summary: 'Solution to the eighth AltScore programming challenge'
+listed: true
+summary: 'Solution to the eighth AltScore programming challenge: Navigate through Altwarts magical door by collecting cookies and creating a teapot endpoint.'
 ---
+
+**TLDR:**
+
+- Create a [`/teapot`](https://github.com/christianguevara/thedveloper-website/blob/main/app/api/teapot/route.ts) endpoint that returns HTTP 418
+- Call the door API at specific minute intervals (:00, :01, :02, :03, :04)
+- Collect the `gryffindor` cookies
+- Decode the base64 message with "revelio"
+- [Script](https://github.com/christianguevara/thedveloper-website/blob/main/data/blog/altscore-makers-challenge/8-collect-cookies.mjs)
 
 This challenge belongs to a series of programming challenges published by [AltScore](https://www.altscore.ai/).
 You can see the complete list [here](/blog/altscore-makers-challenge/0-reto-altscore). This is the **eighth** challenge.
 
-## Content coming soon... 
+<TOCInline toc={props.toc} />
+
+## Problem Statement
+
+### El Hechizo de La puerta mágica
+
+¡Bienvenido a Altwarts, la escuela de magia y hechicería para programadores! 🧙‍♂️
+
+Para entrar a la sala común de Gryffindor, debes pasar por la puerta mágica. La puerta tiene un comportamiento peculiar:
+
+1. Primero, debes demostrar que eres un verdadero mago creando un endpoint `/teapot` que responda con el código HTTP 418 ("I'm a teapot")
+2. Luego, debes llamar a la puerta en los momentos correctos
+3. La puerta te dará galletas mágicas (cookies) que contienen partes de un mensaje secreto
+4. Al final, usa el hechizo "revelio" para decodificar el mensaje
+
+**Recursos:**
+
+- Endpoint de la puerta: `[POST] /v1/s1/e8/actions/door`
+- Tu servidor debe tener un endpoint `/teapot` accesible
+- Envía tu respuesta aquí: `[POST] /v1/s1/e8/solution`
+- ¡No olvides consultar la [Documentación](https://makers-challenge.altscore.ai/docs)!
+
+## Solution
+
+### Step 1: Create the teapot endpoint
+
+The first clue is that we need a "teapot" endpoint. HTTP status code 418 "I'm a teapot" is a famous April Fools' joke from [RFC 2324](https://datatracker.ietf.org/doc/html/rfc2324).
+
+```ts
+// app/api/teapot/route.ts
+
+import { NextResponse } from 'next/server'
+
+export async function POST() {
+  return new NextResponse('I am a teapot', { status: 418 })
+}
+```
+
+### Step 2: Discover the timing pattern
+
+When testing the door endpoint in the Swagger UI, I noticed something interesting:
+
+```text
+# Response at :00 (seconds = 00)
+{
+  "response": "¡Bienvenido al desafío de Altwarts! Tienes suerte, aquí está la primera pista."
+}
+
+# Response at :01
+{
+  "response": "Correcto, pero aún tienes un camino por recorrer."
+}
+
+# Response at :02, :03
+{
+  "response": "Correcto, pero aún tienes un camino por recorrer."
+}
+
+# Response at :04
+{
+  "response": "Has llegado al final. Recuerda usar el hechizo 'revelio' para descubrir el mensaje oculto."
+}
+```
+
+The pattern became clear: you need to call the door at specific minutes, when the seconds are `:00`.
+
+Each successful call sets a `gryffindor` cookie that contains part of the message!
+
+### Step 3: Collect the cookies
+
+I wrote a script to automate the cookie collection:
+
+```js
+const API_KEY = 'API-KEY'
+const URL = 'https://makers-challenge.altscore.ai/v1/s1/e8/actions/door'
+
+async function makeRequest(currentCookie = '') {
+  try {
+    const headers = {
+      accept: 'application/json',
+      'API-KEY': API_KEY,
+    }
+
+    if (currentCookie) {
+      headers.Cookie = `gryffindor=${currentCookie}`
+    }
+
+    const response = await fetch(URL, {
+      method: 'POST',
+      headers,
+      body: '',
+    })
+
+    console.log('\nCurrent cookie:', currentCookie)
+
+    // Check if we've reached the end
+    const data = await response.text()
+    if (data.includes('Has llegado al final')) {
+      return { finished: true }
+    }
+
+    // Extract new cookie from Set-Cookie header
+    const setCookieHeader = response.headers.get('set-cookie')
+    let newCookie = ''
+
+    if (setCookieHeader) {
+      const match = setCookieHeader.match(/gryffindor=["]*([^";]*)["]*/)
+      if (match) {
+        newCookie = match[1]
+      }
+    }
+
+    console.log('New cookie:', newCookie)
+
+    if (newCookie) {
+      console.log('Got new cookie value:', newCookie)
+      return { finished: false, newCookie }
+    }
+
+    return { finished: true }
+  } catch (error) {
+    console.error('Error making request:', error.message)
+    return { finished: true }
+  }
+}
+
+async function collectCookies() {
+  console.log('Collecting cookies...')
+  let currentCookie = ''
+  let cookieValues = []
+  let finished = false
+
+  while (!finished) {
+    const result = await makeRequest(currentCookie)
+
+    if (result.finished) {
+      finished = true
+    } else if (result.newCookie) {
+      currentCookie = result.newCookie
+      cookieValues.push(result.newCookie)
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+
+  const cookieString = cookieValues.join(' ')
+  console.log('All cookie values:', cookieString)
+
+  console.log('Decoding message...')
+  try {
+    const decodedMessage = Buffer.from(cookieString, 'base64').toString('utf-8')
+    console.log('Decoded message:', decodedMessage)
+  } catch (error) {
+    console.error('Error decoding message:', error.message)
+  }
+}
+
+collectCookies()
+```
+
+The key insight is:
+
+1. Each request returns a new cookie value
+2. You must send the previous cookie to get the next one
+3. The cookie values are base64-encoded fragments
+4. When concatenated and decoded, they reveal the secret message
+
+### Step 4: Apply the "revelio" spell
+
+The message says to use "revelio" to decode. In this case, it means Base64 decoding:
+
+```js
+const cookieString = 'SGVsbG8g... V29ybGQh' // collected cookie values
+const decodedMessage = Buffer.from(cookieString, 'base64').toString('utf-8')
+console.log(decodedMessage) // The secret message!
+```
+
+### Step 5: Submit the answer
+
+After decoding the message, submit it to the solution endpoint:
+
+```bash
+curl -X 'POST' \
+  'https://makers-challenge.altscore.ai/v1/s1/e8/solution' \
+  -H 'accept: application/json' \
+  -H 'API-KEY: API-KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "secret_message": "THE_DECODED_MESSAGE_HERE"
+}'
+```
+
+And the response is:
+
+```json
+{
+  "result": "correct"
+}
+```
+
+### Key learnings
+
+1. **HTTP 418** - The "I'm a teapot" status code is a real HTTP status code, originally an April Fools' joke. It is so funny, I learned about it a long time ago.
+2. **Cookie chaining** - Each cookie value depends on the previous one, like a linked list
+3. **Timing matters** - The door only responds correctly at specific times (every minute on the minute)
+4. **Base64 encoding** - "revelio" is a hint to decode/reveal the hidden message
+
+**TADA!** 🎉

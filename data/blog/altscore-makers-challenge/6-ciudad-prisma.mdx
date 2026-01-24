@@ -1,13 +1,276 @@
 ---
 title: La Infiltración en Ciudad Prisma - Interview challenge solution
-date: '2025-03-10'
+date: '2025-03-31'
 tags: ['tech interviews', 'algorithms', 'altscore']
 draft: false
-listed: false
-summary: 'Solution to the sixth AltScore programming challenge'
+listed: true
+summary: 'Solution to the sixth AltScore programming challenge: Calculate average Pokemon heights by type using the PokeAPI.'
 ---
+
+**TLDR:**
+- [Get Pokemon types](https://github.com/christianguevara/thedveloper-website/blob/main/data/blog/altscore-makers-challenge/6-0-get-pokemon-types.sh)
+- [Get Pokemon heights](https://github.com/christianguevara/thedveloper-website/blob/main/data/blog/altscore-makers-challenge/6-1-get-pokemon-heights.mjs)
+- [Calculate averages](https://github.com/christianguevara/thedveloper-website/blob/main/data/blog/altscore-makers-challenge/6-2-calculate-averages.mjs)
 
 This challenge belongs to a series of programming challenges published by [AltScore](https://www.altscore.ai/).
 You can see the complete list [here](/blog/altscore-makers-challenge/0-reto-altscore). This is the **sixth** challenge.
 
-## Content coming soon... 
+<TOCInline toc={props.toc} />
+
+## Problem Statement
+
+### La Infiltración en Ciudad Prisma
+
+En Ciudad Prisma, una metrópolis donde los humanos y los Pokémon conviven en armonía, se ha descubierto una conspiración.
+Un grupo de científicos ha estado recopilando datos sobre Pokémon para un proyecto misterioso.
+
+Tu misión como agente infiltrado es acceder al sistema de datos de Ciudad Prisma y extraer información crucial:
+**calcular la altura promedio de los Pokémon por cada tipo**.
+
+Los científicos utilizan el [PokeAPI](https://pokeapi.co/) como su fuente de datos. Deberás:
+
+1. Acceder a la API de tipos de Pokémon
+2. Para cada tipo, obtener todos los Pokémon asociados
+3. Calcular la altura promedio por tipo
+4. Reportar tus hallazgos
+
+**Recursos:**
+- [PokeAPI](https://pokeapi.co/) - Base de datos de Pokémon
+- Envía tu respuesta aquí: `[POST] /v1/s1/e6/solution`
+- ¡No olvides consultar la [Documentación](https://makers-challenge.altscore.ai/docs)!
+
+## Solution
+
+### Step 1: Get all Pokemon types
+
+First, we need to fetch all available Pokemon types from the PokeAPI. The endpoint `https://pokeapi.co/api/v2/type/` returns a list of all types with URLs to their detailed information.
+
+I wrote a bash script to fetch all type data:
+
+```bash
+#!/bin/bash
+
+# Output file will be created in the current directory
+OUTPUT_FILE="6-pokemon-types.json"
+
+TYPES_URL="https://pokeapi.co/api/v2/type/"
+TYPES_JSON=$(curl -s "$TYPES_URL")
+
+# Get type URLs using jq
+TYPE_URLS=$(echo "$TYPES_JSON" | jq -r '.results[].url')
+
+echo "[" > "$OUTPUT_FILE"
+
+FIRST=true
+for TYPE_URL in $TYPE_URLS; do
+    TYPE_INFO=$(curl -s "$TYPE_URL")
+
+    if [ "$FIRST" = true ]; then
+        FIRST=false
+    else
+        echo "," >> "$OUTPUT_FILE"
+    fi
+
+    echo "$TYPE_INFO" >> "$OUTPUT_FILE"
+
+    sleep 1
+done
+
+echo "Data saved to $OUTPUT_FILE"
+```
+
+This script:
+- Fetches the list of all types
+- Iterates through each type URL
+- Downloads the full type information (including all Pokemon of that type)
+- Saves everything to a JSON file
+
+> **Note:** The output file is quite large (~500KB) as it contains all Pokemon for each type.
+
+### Step 2: Get heights for each Pokemon
+
+Now we need to get the height of each Pokemon. The type data includes Pokemon URLs, so we can fetch each one.
+
+```js
+import { writeFileSync } from 'fs'
+
+async function processPokemon(name, url, typeId, typeName) {
+  try {
+    const response = await fetch(url)
+    const pokemonData = await response.json()
+    const height = pokemonData.height
+
+    const csvLine = `${name}:${typeId}:${typeName}:${height}\n`
+    writeFileSync('6-pokemon-heights.csv', csvLine, { flag: 'a' })
+
+    console.log(`Processed ${name}...`)
+  } catch (error) {
+    console.error(`Error processing ${name}:`, error.message)
+  }
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function main() {
+  console.log('Processing Pokemon data...')
+
+  writeFileSync('6-pokemon-heights.csv', '')
+
+  try {
+    const typesJson = await import('./6-pokemon-types.json', { assert: { type: 'json' } }).then(
+      (m) => m.default
+    )
+
+    for (const type of typesJson) {
+      const { id: typeId, name: typeName, pokemon } = type
+      console.log(`Processing Pokemon for type: ${typeName} (ID: ${typeId})`)
+
+      for (const pkmn of pokemon) {
+        if (pkmn.pokemon) {
+          const { name, url } = pkmn.pokemon
+          await processPokemon(name, url, typeId, typeName)
+
+          await delay(200)
+        }
+      }
+    }
+
+    console.log('Done! --> 6-pokemon-heights.csv')
+  } catch (error) {
+    console.error('Error D:', error.message)
+  }
+}
+
+main()
+```
+
+This script:
+- Reads the types JSON file
+- For each type, iterates through all Pokemon
+- Fetches each Pokemon's data and extracts the height
+- Saves to a CSV file with format: `name:typeId:typeName:height`
+
+Sample output from `pokemon_heights.csv`:
+
+```text
+pidgey:1:normal:3
+pidgeotto:1:normal:11
+pidgeot:1:normal:15
+rattata:1:normal:3
+raticate:1:normal:7
+...
+charizard:10:fire:17
+vulpix:10:fire:6
+arcanine:10:fire:19
+...
+```
+
+### Step 3: Calculate the average height by type
+
+Now we process the CSV to calculate averages:
+
+```js
+import { readFileSync } from 'fs'
+
+const csvContent = readFileSync('6-pokemon-heights.csv', 'utf-8')
+const lines = csvContent.trim().split('\n')
+
+const typeData = new Map()
+
+for (const line of lines) {
+  const [, , type, height] = line.split(':')
+  const heightNum = parseFloat(height)
+
+  if (!typeData.has(type)) {
+    typeData.set(type, { sum: 0, count: 0 })
+  }
+
+  const data = typeData.get(type)
+  data.sum += heightNum
+  data.count += 1
+}
+
+// Calculate averages and format the result
+const heights = {}
+for (const [type, data] of typeData) {
+  const average = (data.sum / data.count).toFixed(3)
+  heights[type] = average
+}
+
+// Output the result
+console.log(JSON.stringify({ heights }, null, 2))
+```
+
+### The Result
+
+Running the calculation script produces:
+
+```json
+{
+  "heights": {
+    "bug": "19.529",
+    "dark": "20.064",
+    "dragon": "43.374",
+    "electric": "16.491",
+    "fairy": "19.410",
+    "fighting": "22.600",
+    "fire": "28.990",
+    "flying": "16.597",
+    "ghost": "14.728",
+    "grass": "16.822",
+    "ground": "19.323",
+    "ice": "18.273",
+    "normal": "15.665",
+    "poison": "33.706",
+    "psychic": "16.206",
+    "rock": "18.020",
+    "steel": "27.758"
+  }
+}
+```
+
+Interesting findings:
+- **Dragon** types are the tallest on average (43.374 decimeters = ~4.3 meters)
+- **Poison** types are surprisingly tall (33.706) - probably due to large snakes like Arbok and Seviper
+- **Ghost** types are the shortest (14.728)
+
+### Submit the answer
+
+```bash
+curl -X 'POST' \
+  'https://makers-challenge.altscore.ai/v1/s1/e6/solution' \
+  -H 'accept: application/json' \
+  -H 'API-KEY: API-KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "heights": {
+    "bug": "19.529",
+    "dark": "20.064",
+    "dragon": "43.374",
+    "electric": "16.491",
+    "fairy": "19.410",
+    "fighting": "22.600",
+    "fire": "28.990",
+    "flying": "16.597",
+    "ghost": "14.728",
+    "grass": "16.822",
+    "ground": "19.323",
+    "ice": "18.273",
+    "normal": "15.665",
+    "poison": "33.706",
+    "psychic": "16.206",
+    "rock": "18.020",
+    "steel": "27.758"
+  }
+}'
+```
+
+And the response is:
+
+```json
+{
+  "result": "correct"
+}
+```
+
+**TADA!** 🎉

@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs'
 
-const csvContent = readFileSync('pokemon_heights.csv', 'utf-8')
+const csvContent = readFileSync('6-pokemon-heights.csv', 'utf-8')
 const lines = csvContent.trim().split('\n')
 
 const typeData = new Map()

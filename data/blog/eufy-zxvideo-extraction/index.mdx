@@ -1,0 +1,339 @@
+---
+title: Reverse Engineering eufy Security Camera Videos - From .zxvideo to MP4
+date: '2026-01-23'
+tags: ['reverse engineering', 'python', 'ffmpeg', 'security cameras']
+draft: false
+summary: 'How I extracted 5,656 videos from my eufy camera SD card by reverse engineering their proprietary .zxvideo format. Includes Python scripts, audio sync fixes, and a deep dive into H.265/HEVC video extraction.'
+---
+
+## Content
+
+<TOCInline toc={props.toc} exclude="Content" />
+
+## The Problem
+
+I have a eufy Indoor Cam S350 with a 128GB microSD card full of recordings. After months of footage, I wanted to bulk download everything to my Mac. Sounds simple, right?
+
+**Plot twist**: eufy doesn't make this easy.
+
+The recordings are stored in a proprietary `.zxvideo` format that no media player recognizes. The only "official" way to get your videos is downloading them one-by-one through the eufy app. With **5,656 videos** on my SD card, that wasn't happening.
+
+So I did what any reasonable developer would do - I reverse engineered the format.
+
+## The Journey
+
+### First Obstacle: ext4 File System
+
+When I plugged the SD card into my Mac... nothing. macOS doesn't natively support ext4 (the Linux filesystem eufy uses).
+
+**Solution**: [Paragon extFS for Mac](https://www.paragon-software.com/home/extfs-mac/) ($39.95, free trial). After installation, the card mounted and revealed the folder structure:
+
+```
+/Volumes/8416P0023340562/
+├── Camera00/
+│   ├── continue/     # Continuous recordings
+│   │   └── 202403/20240301/20240301001359.zxvideo
+│   └── event/        # Motion events
+│       └── 202403/20240301/
+│           ├── 20240301140220.zxvideo
+│           ├── 20240301140220.txt
+│           ├── 20240301140220_snapshot.jpg
+│           └── 20240301140220_crop_zx_*.jpg
+```
+
+**109GB of data** with multiple file types:
+
+| Type | Count | What It Is |
+|------|-------|------------|
+| `.zxvideo` | 5,656 | Video recordings |
+| `.txt` | 5,657 | JSON metadata |
+| `.jpg` | 2,634 | Snapshots & detection crops |
+| `.stats/.evt/.crop/.lst` | ~50 | Internal indexes (skip) |
+
+**Plot twist #2**: The `.jpg` files are NOT standard images. They're encrypted:
+```
+eufysecurity:T8416P0023340562:0184391229:<encrypted data>
+```
+
+Unlike the video data (which is unencrypted), eufy encrypts all thumbnails with a proprietary scheme. Not worth trying to crack—just generate new thumbnails from the videos.
+
+**The two image types**:
+- `*_snapshot.jpg` - Full frame at event start
+- `*_crop_zx_*.jpg` - The detected person/pet that triggered the event (the bounding box crop)
+
+**What we do**:
+1. **Copy encrypted images** - preserved in case someone figures it out later
+2. **Generate thumbnails from videos** - extract frames at 1s and 5s
+
+```bash
+ffmpeg -ss 00:00:01 -i video.mp4 -vframes 1 -q:v 2 thumb_1s.jpg
+ffmpeg -ss 00:00:05 -i video.mp4 -vframes 1 -q:v 2 thumb_5s.jpg
+```
+
+Now to figure out what's inside those `.zxvideo` files.
+
+### Analyzing the Format
+
+Time to break out the hex editor (well, `xxd`):
+
+```bash
+xxd video.zxvideo | head -20
+```
+
+```
+00000000: 585a 5948 1405 29c6 0000 0300 0001 0068  XZYH..)........h
+00000010: 13c6 0000 0102 72e5 0f00 000f 7008 cc5b  ......r.....p..[
+...
+000000bc: 0000 0001 2601 ac20 c01a 0d97 d663 9b5f  ....&.. .....c._
+```
+
+**Key findings**:
+- `XZYH` - Magic bytes (eufy's signature)
+- `00 00 00 01 26` at offset 0xBC - That's an H.265/HEVC NAL start code!
+- The video is standard H.265, just wrapped in a custom container
+
+The metadata `.txt` files were JSON goldmines:
+
+```json
+{
+  "res_best_width": 3840,
+  "res_best_height": 2160,
+  "frame_num": 1801,
+  "start_time": "2024-04-25 18:26:50",
+  "mic_status": 1,
+  "aes": "OkppPUttOlB6MU93KFppMQ=="
+}
+```
+
+4K video, 1801 frames, and... wait, is that an AES key? 🤔
+
+### The Missing Headers Problem
+
+I extracted the video NAL units and tried to play them with ffmpeg:
+
+```bash
+ffprobe extracted.h265
+```
+
+```
+[hevc] PPS id out of range
+[hevc] Skipping invalid undecodable NALU
+Could not find codec parameters for stream 0 (Video: hevc)
+```
+
+**The issue**: H.265/HEVC requires three initialization headers (VPS, SPS, PPS) that define the video's resolution and encoding parameters. The `.zxvideo` files don't include them - the camera injects them during playback.
+
+**The solution**: Download ANY video through the eufy app (which exports as MP4) and extract the headers from there:
+
+```python
+# Extract headers from app-downloaded video
+with open('app_video.h265', 'rb') as f:
+    data = f.read()
+
+# Find first IDR frame (NAL type 19) - headers are everything before it
+for i in range(len(data) - 4):
+    if data[i:i+4] == b'\x00\x00\x00\x01':
+        nal_type = (data[i+4] >> 1) & 0x3F
+        if nal_type == 19:  # IDR frame
+            headers = data[:i]  # 238 bytes of VPS/SPS/PPS
+            break
+```
+
+These **238 bytes** work for ALL videos from the same camera since they use the same encoding settings.
+
+### Finding the Audio
+
+After getting video working, I noticed... no audio. The videos should have sound!
+
+Searching through the hex dump, I found AAC ADTS frames scattered throughout the file:
+
+```python
+# AAC ADTS sync word: 0xFFF1 or 0xFFF9
+if data[i] == 0xFF and (data[i+1] & 0xF0) == 0xF0:
+    # Found an AAC frame!
+```
+
+The audio is **interleaved** with video throughout the file, not in a separate section. Here's the extraction with validation:
+
+```python
+def extract_audio(data):
+    audio_data = bytearray()
+    i = 0
+    while i < len(data) - 7:
+        if data[i] == 0xFF and (data[i+1] & 0xF0) == 0xF0:
+            # Parse ADTS header
+            profile = ((data[i+2] >> 6) & 0x03) + 1
+            sample_rate_idx = (data[i+2] >> 2) & 0x0F
+            frame_len = ((data[i+3] & 0x03) << 11) | (data[i+4] << 3) | ((data[i+5] >> 5) & 0x07)
+            
+            # Validate: AAC-LC, 16kHz, reasonable frame size
+            if profile == 2 and 7 <= frame_len <= 1024:
+                audio_data.extend(data[i:i+frame_len])
+                i += frame_len
+                continue
+        i += 1
+    return bytes(audio_data)
+```
+
+**Audio specs**: AAC-LC, 16000 Hz, mono - standard for security cameras.
+
+### The Audio Sync Problem
+
+Combining video + audio produced a video where... the audio was noticeably delayed. Lips moved, then sound came 0.5 seconds later. Not great.
+
+After comparing with an app-downloaded video, I discovered eufy applies a **-0.127 second audio offset**. Adding this to ffmpeg fixed sync perfectly:
+
+```bash
+ffmpeg -y \
+  -f hevc -r 15 -i video.h265 \
+  -itsoffset -0.127 -i audio.aac \  # The magic offset!
+  -c:v libx265 -crf 32 -tag:v hvc1 \
+  -c:a aac -b:a 64k \
+  -movflags +faststart \
+  output.mp4
+```
+
+### Quality Tuning
+
+I compared different CRF (quality) settings against the eufy app's output:
+
+| CRF | File Size | SSIM vs App | Notes |
+|-----|-----------|-------------|-------|
+| 18 | 144 MB | 99.54% | Maximum quality |
+| 23 | 80 MB | 99.36% | Balanced |
+| 28 | 51 MB | 99.19% | Good compression |
+| **32** | **33 MB** | 98.64% | **Matches app** |
+
+**CRF 32** produces files nearly identical to the app (98.6% SSIM) at the same file size. The quality difference is imperceptible to human eyes.
+
+## The Final Script
+
+After all that reverse engineering, I built a full extraction tool that handles everything:
+
+**What it extracts**:
+- `.zxvideo` → `.mp4` (converted with synced audio)
+- `.jpg` → copied (snapshots + detection crops)
+- `.txt` → copied (JSON metadata with timestamps)
+
+**What it skips** (internal camera indexes):
+- `.stats`, `.evt`, `.crop`, `.lst`
+
+Here's the core conversion logic:
+
+```python
+#!/usr/bin/env python3
+"""eufy .zxvideo to MP4 Converter"""
+import subprocess, tempfile
+
+AUDIO_OFFSET = -0.127  # Sync correction
+VIDEO_CRF = 32         # Matches app quality
+
+def convert(zxvideo_path, output_path, headers):
+    data = zxvideo_path.read_bytes()
+    
+    # Extract video (prepend headers)
+    video_start = data.find(b'\x00\x00\x00\x01', 0x10)
+    video_data = headers + data[video_start:]
+    
+    # Extract audio (find AAC frames)
+    audio_data = extract_audio(data)
+    
+    # Write to temp files
+    with tempfile.NamedTemporaryFile(suffix='.h265', delete=False) as vf:
+        vf.write(video_data)
+        video_temp = vf.name
+    with tempfile.NamedTemporaryFile(suffix='.aac', delete=False) as af:
+        af.write(audio_data)
+        audio_temp = af.name
+    
+    # FFmpeg: combine with sync offset
+    subprocess.run([
+        'ffmpeg', '-y',
+        '-f', 'hevc', '-r', '15', '-i', video_temp,
+        '-itsoffset', str(AUDIO_OFFSET), '-i', audio_temp,
+        '-c:v', 'libx265', '-crf', str(VIDEO_CRF), '-tag:v', 'hvc1',
+        '-c:a', 'aac', '-b:a', '64k',
+        '-movflags', '+faststart', '-shortest',
+        str(output_path)
+    ])
+```
+
+The full script runs in 3 phases:
+1. **Phase 1**: Copy all `.jpg` files (fast, ~2,600 files)
+2. **Phase 2**: Copy all `.txt` metadata (fast, ~5,600 files)
+3. **Phase 3**: Convert all `.zxvideo` → `.mp4` (slow, ~12 hours for 5,600 videos)
+
+## Results
+
+| Metric | Value |
+|--------|-------|
+| Videos converted | 5,656 |
+| Thumbnails generated | 11,312 (2 per video at 1s & 5s) |
+| Encrypted images | 2,634 (copied, not viewable) |
+| Metadata files | 5,657 |
+| Total source size | 109 GB |
+| Output size | ~200 GB (CRF 32) |
+| Time per video | ~2 minutes |
+| Audio sync | Perfect ✓ |
+| QuickTime compatible | Yes ✓ |
+
+Output folder structure mirrors the original:
+
+```
+~/Downloads/eufy_converted/
+├── event/202404/20240425/
+│   ├── 20240425182650.mp4           ← converted video
+│   ├── 20240425182650.txt           ← metadata
+│   ├── 20240425182650_thumb_1s.jpg  ← generated from video
+│   ├── 20240425182650_thumb_5s.jpg  ← generated from video
+│   ├── 20240425182650_snapshot.jpg  ← encrypted (preserved)
+│   └── 20240425182650_crop_zx_*.jpg ← encrypted (preserved)
+├── continue/...
+└── extraction_summary.json          ← stats & any failures
+```
+
+## Key Takeaways
+
+1. **Video data isn't encrypted** - despite the `aes` field in metadata, the actual video/audio data is unencrypted
+2. **Images ARE encrypted** - proprietary format, not worth cracking, just generate new thumbnails
+3. **HEVC headers are reusable** - same camera = same encoding = same headers
+4. **Audio sync is consistent** - -0.127s offset works for all videos
+5. **ext4 is the main barrier** - once you can read the filesystem, video extraction is straightforward
+6. **Preserve what you can't decrypt** - encrypted images are copied for potential future decryption
+
+## What About That AES Key?
+
+The metadata contains Base64-encoded AES keys:
+
+```
+aes: "OkppPUttOlB6MU93KFppMQ=="  → ":Ji=Km:Pz1Ow(Zi1"
+```
+
+These encrypt a small header region (bytes 0x10-0xA6), but not the actual video/audio data. The camera probably uses this for DRM or authentication, but it's not needed for playback.
+
+## Final Thoughts
+
+What started as "I just want my videos" turned into a fun reverse engineering project. The `.zxvideo` format is actually quite simple once you understand it:
+
+- Standard H.265 video (missing headers)
+- Standard AAC audio (interleaved)
+- Proprietary container (easily bypassed)
+
+If you have a eufy camera and want to bulk export your local recordings, the tools are now available. No cloud, no app, just your videos.
+
+**Download the tools:**
+- [convert_eufy_videos.py](https://github.com/christianguevara/thedveloper-website/blob/main/data/blog/eufy-zxvideo-extraction/convert_eufy_videos.py) - The full extraction script
+- [hevc_headers.bin](https://github.com/christianguevara/thedveloper-website/raw/main/data/blog/eufy-zxvideo-extraction/hevc_headers.bin) - HEVC headers for eufy Indoor Cam S350
+
+**Usage:**
+```bash
+# Batch mode - extract everything from SD card
+python3 convert_eufy_videos.py --source "/Volumes/YOUR_SD_CARD/Camera00" --dest ~/Downloads/eufy_converted
+
+# Single file mode
+python3 convert_eufy_videos.py --source "/path/to/video.zxvideo" --dest ~/output
+```
+
+Hit me up on Twitter [@cgTheDev](https://x.com/cgTheDev) if you try this!
+
+🖖

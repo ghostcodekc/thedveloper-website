@@ -20,6 +20,20 @@ The recordings are stored in a proprietary `.zxvideo` format that no media playe
 
 So I did what any reasonable developer would do - I reverse engineered the format.
 
+## A Note on AI Collaboration
+
+**Full transparency**: I used AI extensively for this project—specifically Claude Opus 4.5 with extended thinking.
+
+The approach and ideas were mine: extracting headers from app-downloaded videos, finding the audio sync offset by comparison, the validation logic for AAC frames.
+But I have zero experience with FFMPEG, hex manipulation, or video container formats.
+I couldn't have written this script from scratch.
+
+What I did was ask Claude to explain concepts—NAL units, ADTS headers, H.265 structure, why HEVC needs VPS/SPS/PPS—so I could actually understand what I was doing (and explain it here).
+The script itself was largely AI-generated based on my requirements and iterative testing.
+
+Curiosity takes you to interesting places. I went from "why won't this file play" to understanding video codecs at the byte level. Not because I needed to become a video format expert,
+but because I refused to manually download 5,656 videos through an app, I'm a lazy mf...
+
 ## The Journey
 
 ### First Obstacle: ext4 File System
@@ -43,25 +57,28 @@ When I plugged the SD card into my Mac... nothing. macOS doesn't natively suppor
 
 **109GB of data** with multiple file types:
 
-| Type | Count | What It Is |
-|------|-------|------------|
-| `.zxvideo` | 5,656 | Video recordings |
-| `.txt` | 5,657 | JSON metadata |
-| `.jpg` | 2,634 | Snapshots & detection crops |
-| `.stats/.evt/.crop/.lst` | ~50 | Internal indexes (skip) |
+| Type                     | Count | What It Is                  |
+| ------------------------ | ----- | --------------------------- |
+| `.zxvideo`               | 5,656 | Video recordings            |
+| `.txt`                   | 5,657 | JSON metadata               |
+| `.jpg`                   | 2,634 | Snapshots & detection crops |
+| `.stats/.evt/.crop/.lst` | ~50   | Internal indexes (skip)     |
 
 **Plot twist #2**: The `.jpg` files are NOT standard images. They're encrypted:
+
 ```
 eufysecurity:T8416P0023340562:0184391229:<encrypted data>
 ```
 
-Unlike the video data (which is unencrypted), eufy encrypts all thumbnails with a proprietary scheme. Not worth trying to crack—just generate new thumbnails from the videos.
+Unlike the video data (which is unencrypted), eufy encrypts all thumbnails with a proprietary scheme (I think). Not worth trying to crack—just generate new thumbnails from the videos.
 
 **The two image types**:
+
 - `*_snapshot.jpg` - Full frame at event start
 - `*_crop_zx_*.jpg` - The detected person/pet that triggered the event (the bounding box crop)
 
 **What we do**:
+
 1. **Copy encrypted images** - preserved in case someone figures it out later
 2. **Generate thumbnails from videos** - extract frames at 1s and 5s
 
@@ -88,6 +105,7 @@ xxd video.zxvideo | head -20
 ```
 
 **Key findings**:
+
 - `XZYH` - Magic bytes (eufy's signature)
 - `00 00 00 01 26` at offset 0xBC - That's an H.265/HEVC NAL start code!
 - The video is standard H.265, just wrapped in a custom container
@@ -165,7 +183,7 @@ def extract_audio(data):
             profile = ((data[i+2] >> 6) & 0x03) + 1
             sample_rate_idx = (data[i+2] >> 2) & 0x0F
             frame_len = ((data[i+3] & 0x03) << 11) | (data[i+4] << 3) | ((data[i+5] >> 5) & 0x07)
-            
+
             # Validate: AAC-LC, 16kHz, reasonable frame size
             if profile == 2 and 7 <= frame_len <= 1024:
                 audio_data.extend(data[i:i+frame_len])
@@ -197,12 +215,12 @@ ffmpeg -y \
 
 I compared different CRF (quality) settings against the eufy app's output:
 
-| CRF | File Size | SSIM vs App | Notes |
-|-----|-----------|-------------|-------|
-| 18 | 144 MB | 99.54% | Maximum quality |
-| 23 | 80 MB | 99.36% | Balanced |
-| 28 | 51 MB | 99.19% | Good compression |
-| **32** | **33 MB** | 98.64% | **Matches app** |
+| CRF    | File Size | SSIM vs App | Notes            |
+| ------ | --------- | ----------- | ---------------- |
+| 18     | 144 MB    | 99.54%      | Maximum quality  |
+| 23     | 80 MB     | 99.36%      | Balanced         |
+| 28     | 51 MB     | 99.19%      | Good compression |
+| **32** | **33 MB** | 98.64%      | **Matches app**  |
 
 **CRF 32** produces files nearly identical to the app (98.6% SSIM) at the same file size. The quality difference is imperceptible to human eyes.
 
@@ -211,11 +229,13 @@ I compared different CRF (quality) settings against the eufy app's output:
 After all that reverse engineering, I built a full extraction tool that handles everything:
 
 **What it extracts**:
+
 - `.zxvideo` → `.mp4` (converted with synced audio)
 - `.jpg` → copied (snapshots + detection crops)
 - `.txt` → copied (JSON metadata with timestamps)
 
 **What it skips** (internal camera indexes):
+
 - `.stats`, `.evt`, `.crop`, `.lst`
 
 Here's the core conversion logic:
@@ -230,14 +250,14 @@ VIDEO_CRF = 32         # Matches app quality
 
 def convert(zxvideo_path, output_path, headers):
     data = zxvideo_path.read_bytes()
-    
+
     # Extract video (prepend headers)
     video_start = data.find(b'\x00\x00\x00\x01', 0x10)
     video_data = headers + data[video_start:]
-    
+
     # Extract audio (find AAC frames)
     audio_data = extract_audio(data)
-    
+
     # Write to temp files
     with tempfile.NamedTemporaryFile(suffix='.h265', delete=False) as vf:
         vf.write(video_data)
@@ -245,7 +265,7 @@ def convert(zxvideo_path, output_path, headers):
     with tempfile.NamedTemporaryFile(suffix='.aac', delete=False) as af:
         af.write(audio_data)
         audio_temp = af.name
-    
+
     # FFmpeg: combine with sync offset
     subprocess.run([
         'ffmpeg', '-y',
@@ -259,23 +279,24 @@ def convert(zxvideo_path, output_path, headers):
 ```
 
 The full script runs in 3 phases:
+
 1. **Phase 1**: Copy all `.jpg` files (fast, ~2,600 files)
 2. **Phase 2**: Copy all `.txt` metadata (fast, ~5,600 files)
 3. **Phase 3**: Convert all `.zxvideo` → `.mp4` (slow, ~12 hours for 5,600 videos)
 
 ## Results
 
-| Metric | Value |
-|--------|-------|
-| Videos converted | 5,656 |
+| Metric               | Value                           |
+| -------------------- | ------------------------------- |
+| Videos converted     | 5,656                           |
 | Thumbnails generated | 11,312 (2 per video at 1s & 5s) |
-| Encrypted images | 2,634 (copied, not viewable) |
-| Metadata files | 5,657 |
-| Total source size | 109 GB |
-| Output size | ~200 GB (CRF 32) |
-| Time per video | ~2 minutes |
-| Audio sync | Perfect ✓ |
-| QuickTime compatible | Yes ✓ |
+| Encrypted images     | 2,634 (copied, not viewable)    |
+| Metadata files       | 5,657                           |
+| Total source size    | 109 GB                          |
+| Output size          | ~200 GB (CRF 32)                |
+| Time per video       | ~2 minutes                      |
+| Audio sync           | Perfect ✓                       |
+| QuickTime compatible | Yes ✓                           |
 
 Output folder structure mirrors the original:
 
@@ -322,10 +343,12 @@ What started as "I just want my videos" turned into a fun reverse engineering pr
 If you have a eufy camera and want to bulk export your local recordings, the tools are now available. No cloud, no app, just your videos.
 
 **Download the tools:**
+
 - [convert_eufy_videos.py](https://github.com/christianguevara/thedveloper-website/blob/main/data/blog/eufy-zxvideo-extraction/convert_eufy_videos.py) - The full extraction script
 - [hevc_headers.bin](https://github.com/christianguevara/thedveloper-website/raw/main/data/blog/eufy-zxvideo-extraction/hevc_headers.bin) - HEVC headers for eufy Indoor Cam S350
 
 **Usage:**
+
 ```bash
 # Batch mode - extract everything from SD card
 python3 convert_eufy_videos.py --source "/Volumes/YOUR_SD_CARD/Camera00" --dest ~/Downloads/eufy_converted

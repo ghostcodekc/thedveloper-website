@@ -3,7 +3,7 @@ title: La Última Defensa de la "Valiant" - Interview challenge solution
 date: '2025-03-29'
 tags: ['tech interviews', 'algorithms', 'altscore']
 draft: false
-listed: false
+listed: true
 summary: 'A detailed walkthrough of an AltScore challenge where you must predict and intercept an enemy ship in an 8x8 grid within 4 turns.'
 ---
 
@@ -40,9 +40,9 @@ batalla. El espacio de acción de la torre de defensa es limitado y plagado de e
 misión. En cada turno, puedes elegir entre dos acciones:
 
 - **Leer el radar**: Acceder al puerto de comunicaciones y obtener una lectura textual de la posición actual de la nave enemiga, en el
-formato descrito en el manual.
+  formato descrito en el manual.
 - **Atacar**: Disparar tu arma a las coordenadas especificadas (x, y), teniendo en cuenta que la nave enemiga se habrá movido desde la
-última lectura del radar. Recuerda que solo tienes un disparo.
+  última lectura del radar. Recuerda que solo tienes un disparo.
 
 #### Cuenta Regresiva
 
@@ -71,11 +71,13 @@ Escribe un programa que, bajo la presión del tiempo, analice los datos del puer
 #### Bitácora
 
 **Última lectura del radar:**
+
 ```
 a01b01c01d01e01f01g01h01|a02b02c02d02e$2f02g02h02|a03b03c03d03e03f03g03h$3|a04b04c04d04e04f04g04h04|a05b05c05d05e$5f05g^5h05|a06b06c06d06e$6f06g06h06|a07b07c07d07e07f07g07h07|a08b08c08d08e08f#8g08h08|
 ```
 
 **Captura de pantalla correspondiente a la lectura del radar:**
+
 ```
 0 0 0 0 0 # 0 0
 0 0 0 0 0 0 0 0
@@ -88,7 +90,8 @@ a01b01c01d01e01f01g01h01|a02b02c02d02e$2f02g02h02|a03b03c03d03e03f03g03h$3|a04b0
 ```
 
 #### Recursos
-* ¡No olvides consultar la [Documentación](https://makers-challenge.altscore.ai/docs)! 
+
+- ¡No olvides consultar la [Documentación](https://makers-challenge.altscore.ai/docs)!
 
 ## Solution
 
@@ -100,6 +103,7 @@ a01b01c01d01e01f01g01h01|a02b02c02d02e$2f02g02h02|a03b03c03d03e03f03g03h$3|a04b0
 The radar is a string that contains the position of the enemy ship and the obstacles in some format that we need to understand.
 
 My process was:
+
 - It looks like the `|` character is used to separate the rows of the matrix
 - a, b, c, d, e, f, g, h are the columns or rows
 - 1, 2, 3, 4, 5, 6, 7, 8 are the columns or rows
@@ -204,7 +208,7 @@ Checking at the docs there is another endpoint to read the radar and to attack t
 > Remember we only have 4 turns, so we need to be careful and use the radar to know the position of the enemy ship.
 
 Each time we **read the radar or make an attack counts as _one turn_**, so we need to plan our moves carefully within our 4-turn limit.
-This is where I made the mistake, I was not aware that the radar query counts as one turn 
+This is where I made the mistake, I was not aware that the radar query counts as one turn
 so I ended up calling radar twice and wasting one turn.
 
 ### Time to read the radar
@@ -245,12 +249,13 @@ We need to find our ship and the enemy ship in the matrix.
 - Not sure what to do, but I guess we cannot shoot through obstacles.
 
 We need to predict the enemy ship movement:
+
 - Use the last 3 radar reads to predict the movement 👾
 - Make sure to take into account the obstacles 🧱
 - Then shoot 🔫
 
-
 ### Attack the enemy ship
+
 Let's imagine we know the enemy ship position in the next turn and the position is `(a, 3)`.
 Remember X is the column and Y is the row. X goes from a to h and Y goes from 1 to 8.
 
@@ -267,7 +272,7 @@ curl -X 'POST' \
   "attack_position": {
     "x": "a",
     "y": 3
-  } 
+  }
 }'
 ```
 

@@ -16,29 +16,48 @@ You can see the complete list [here](/blog/altscore-makers-challenge/0-reto-alts
 
 ## Problem Statement
 
-### Nave a la deriva - Parte 2
+### Nave a la deriva Año 2315 - Parte 2: Datos Corruptos, el Cambio de Fase y un Cuaderno Garabateado
 
-¡Tu nave espacial sigue a la deriva! Esta vez, el sistema de refrigeración está fallando y necesitas calcular los valores de cambio de fase del refrigerante.
+**Trama:**
 
-El sistema de control de la nave necesita un endpoint que, dada una presión, devuelva:
-- El volumen específico del líquido (`specific_volume_liquid`)
-- El volumen específico del vapor (`specific_volume_vapor`)
+Un suspiro de alivio escapa de tus labios al ver al robot reparador acoplarse a tu nave. La esperanza se renueva, pero dura poco. Una alarma estridente te saca de tu momentánea tranquilidad. El robot ha detectado una avería crítica: datos corruptos relacionados con la curva de "saturación y cambio de fase P-v" del fluido hidráulico. Sin esta información, la nave no puede calibrar sus actuadores y sigue a la deriva.
 
-Estos valores deben calcularse usando interpolación lineal basada en un diagrama de cambio de fase.
+Una oleada de frustración te invade. ¡Tú eres un programador, no un ingeniero mecánico! Pero la desesperación da paso a la determinación. Siempre has sido bueno resolviendo problemas, y este no será la excepción.
 
-**Datos del diagrama:**
-- Presión mínima: 0.05
-- Presión máxima (punto crítico): 10
-- Volumen líquido a presión mínima: 0.00105
-- Volumen líquido a presión máxima: 0.0035
-- Volumen vapor a presión mínima: 30
-- Volumen vapor a presión máxima: 0.0035 (en el punto crítico, líquido = vapor)
+La documentación del robot te da una pista: realizará 10 peticiones HTTP a la ruta /phase-change-diagram para intentar reconstruir el archivo corrupto. Ahí está tu oportunidad.
 
-**Recursos:**
-- Tu servidor debe estar accesible públicamente
+**Pista:**
+
+Mientras buscas frenéticamente entre los manuales de la nave, encuentras el cuaderno de bitácora del ingeniero mecánico. La última entrada termina abruptamente con un "¡Wubba Lubba Dub-Dub!" garabateado y una mancha de lo que sospechas es salsa Sichuan...¡Pero entre diagramas a medio terminar y ecuaciones a medio resolver, encuentras la curva de saturación del fluido hidráulico!
+
+![PV diagram](/static/images/pv_diagram.png)
+
+### Analysis of the problem
+
+Your spaceship is still adrift! This time, the cooling system is failing and you need to calculate the phase change values of the coolant.
+
+The ship's control system needs an endpoint that, given a pressure, returns:
+
+- The specific volume of the liquid (`specific_volume_liquid`)
+- The specific volume of the vapor (`specific_volume_vapor`)
+
+These values must be calculated using linear interpolation based on a phase change diagram.
+
+**Diagram data:**
+
+- Minimum pressure: 0.05
+- Maximum pressure (critical point): 10
+- Liquid volume at minimum pressure: 0.00105
+- Liquid volume at maximum pressure: 0.0035
+- Vapor volume at minimum pressure: 30
+- Vapor volume at maximum pressure: 0.0035 (at the critical point, liquid = vapor)
+
+**Resources:**
+
+- Your server must be publicly accessible
 - Endpoint: `GET /phase-change-diagram?pressure=X`
-- Envía la URL de tu servidor aquí: `[POST] /v1/s1/e9/solution`
-- ¡No olvides consultar la [Documentación](https://makers-challenge.altscore.ai/docs)!
+- Submit your server URL here: `[POST] /v1/s1/e9/solution`
+- Don't forget to check the [Documentation](https://makers-challenge.altscore.ai/docs)!
 
 ## Solution
 
@@ -59,6 +78,7 @@ v = v_1 + \frac{(P - P_1) \times (v_2 - v_1)}{P_2 - P_1}
 $$
 
 Where:
+
 - $P$ = input pressure
 - $P_1$ = minimum pressure (0.05)
 - $P_2$ = maximum pressure (10)
@@ -150,6 +170,7 @@ curl "http://localhost:3000/api/phase-change-diagram?pressure=5"
 ### The thermodynamics behind it
 
 In a real phase change diagram:
+
 - **Below critical pressure**: Liquid and vapor coexist with different densities
 - **At critical pressure**: The distinction between liquid and vapor disappears
 - **Specific volume**: Inverse of density (volume per unit mass)

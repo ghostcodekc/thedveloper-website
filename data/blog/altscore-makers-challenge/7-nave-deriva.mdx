@@ -21,14 +21,16 @@ You can see the complete list [here](/blog/altscore-makers-challenge/0-reto-alts
 Tu nave espacial ha sufrido daños críticos y está a la deriva en el espacio profundo. Los sistemas de la nave están fallando
 uno por uno, y necesitas crear un sistema de diagnóstico y reparación.
 
-El sistema de control de la nave requiere dos endpoints:
+El sistema de control de la nave requiere tres endpoints:
 
 1. **`/status`** - Debe reportar qué sistema está dañado actualmente
 2. **`/repair-bay`** - Debe proporcionar el código de reparación del sistema dañado
+3. **`/teapot`** - Debe devolver un código HTTP 418 "I'm a teapot"
 
 Los sistemas de la nave son:
+
 - `navigation` - Sistema de navegación
-- `communications` - Sistema de comunicaciones  
+- `communications` - Sistema de comunicaciones
 - `life_support` - Soporte vital
 - `engines` - Motores
 - `deflector_shield` - Escudo deflector
@@ -36,6 +38,7 @@ Los sistemas de la nave son:
 Cada sistema tiene un código de reparación único que el técnico de reparaciones necesita para arreglarlo.
 
 **Recursos:**
+
 - Tu servidor debe estar accesible públicamente
 - Envía la URL de tu servidor aquí: `[POST] /v1/s1/e7/solution`
 - ¡No olvides consultar la [Documentación](https://makers-challenge.altscore.ai/docs)!
@@ -47,10 +50,12 @@ Cada sistema tiene un código de reparación único que el técnico de reparacio
 This challenge is different from the others - instead of calling APIs, we need to **create** APIs that AltScore will call.
 
 The flow is:
+
 1. AltScore calls our `/status` endpoint
 2. We respond with a random damaged system
 3. AltScore calls our `/repair-bay` endpoint
 4. We respond with an HTML page containing the repair code for that system
+5. AltScore calls our `/teapot` endpoint
 
 The tricky part is that both endpoints need to share state - the repair-bay needs to know which system was reported as damaged.
 
@@ -164,19 +169,35 @@ The key here is that the repair code must be inside a `<div class="anchor-point"
 
 ### System codes mapping
 
-| System | Code |
-|--------|------|
-| navigation | NAV-01 |
-| communications | COM-02 |
-| life_support | LIFE-03 |
-| engines | ENG-04 |
+| System           | Code    |
+| ---------------- | ------- |
+| navigation       | NAV-01  |
+| communications   | COM-02  |
+| life_support     | LIFE-03 |
+| engines          | ENG-04  |
 | deflector_shield | SHLD-05 |
+
+### The `/teapot` endpoint
+
+This endpoint returns a HTTP 418 "I'm a teapot" response:
+
+```ts
+// app/api/teapot/route.ts
+
+import { NextResponse } from 'next/server'
+
+export async function POST() {
+  return new NextResponse('I am a teapot', { status: 418 })
+}
+```
 
 ### Deploying and testing
 
 Since this is a Next.js app deployed on Vercel, the endpoints are automatically available at:
-- `https://yourdomain.com/api/status`
-- `https://yourdomain.com/api/repair-bay`
+
+- `https://thedveloper.com/api/status`
+- `https://thedveloper.com/api/repair-bay`
+- `https://thedveloper.com/api/teapot`
 
 Testing locally:
 
@@ -205,7 +226,7 @@ curl -X 'POST' \
   -H 'API-KEY: API-KEY' \
   -H 'Content-Type: application/json' \
   -d '{
-  "url": "https://yourdomain.vercel.app"
+  "url": "https://thedveloper.com"
 }'
 ```
 

@@ -9,7 +9,6 @@ summary: 'Solution to the eighth AltScore programming challenge: Navigate throug
 
 **TLDR:**
 
-- Create a [`/teapot`](https://github.com/christianguevara/thedveloper-website/blob/main/app/api/teapot/route.ts) endpoint that returns HTTP 418
 - Call the door API at specific minute intervals (:00, :01, :02, :03, :04)
 - Collect the `gryffindor` cookies
 - Decode the base64 message with "revelio"
@@ -24,39 +23,37 @@ You can see the complete list [here](/blog/altscore-makers-challenge/0-reto-alts
 
 ### El Hechizo de La puerta mágica
 
-¡Bienvenido a Altwarts, la escuela de magia y hechicería para programadores! 🧙‍♂️
+**Contexto:**
 
-Para entrar a la sala común de Gryffindor, debes pasar por la puerta mágica. La puerta tiene un comportamiento peculiar:
+En la vasta biblioteca de Altwarts, los antiguos fundadores escondieron un conocimiento arcano, protegido por un hechizo poderoso conocido como “El Encantamiento de la Puerta Mágica”. Para desentrañar este conocimiento, debes resolver el acertijo que dejaron atrás. Cada pista te llevará más cerca de la solución final, pero ten cuidado, pues solo los magos más astutos serán capaces de encontrar el camino.
 
-1. Primero, debes demostrar que eres un verdadero mago creando un endpoint `/teapot` que responda con el código HTTP 418 ("I'm a teapot")
-2. Luego, debes llamar a la puerta en los momentos correctos
-3. La puerta te dará galletas mágicas (cookies) que contienen partes de un mensaje secreto
-4. Al final, usa el hechizo "revelio" para decodificar el mensaje
+**Primera pista:** El Reloj de los Segundos
+
+En la Torre del Reloj de Altwarts, el tiempo es tu mayor aliado y tu peor enemigo. Cada segundo marca el paso de una clave que abre una puerta. Elige el momento correcto, y la llave será tuya. Pero recuerda, solo en el primer segundo puedes encontrar la llave de la primera puerta.
+
+**Segunda pista:** Acción y reacción, las puertas traen revelación
+
+En el aula de Encantamientos, el profesor Flitwick guarda un pergamino antiguo que habla de palabras ocultas, no en los hechizos mismos, sino en las consecuencias de su lanzamiento. Cada acción mágica genera una reacción, y en esa reacción yacen los secretos que buscan los magos astutos. Solo aquellos que observan más allá de lo evidente, que desentrañan los hilos invisibles que conectan causa y efecto, podrán descifrar el verdadero mensaje.
+
+**Tercera pista:**
+
+En el Gran Comedor, N puertas mágicas están alineadas, cada una desbloqueada solo por una palabra. Un hechizo pronunciado mal te perderá, pero el correcto te guiará. Solo avanzando en orden y en el momento adecuado, alcanzarás tu objetivo.
+
+**Cuarta pista:**
+
+Cada puerta te llevará a la siguiente, pero la respuesta no se encuentra al final, sino que el camino mismo es la clave. Recuerda usar el hechizo Revelio para ver lo que está oculto.
 
 **Recursos:**
 
-- Endpoint de la puerta: `[POST] /v1/s1/e8/actions/door`
-- Tu servidor debe tener un endpoint `/teapot` accesible
-- Envía tu respuesta aquí: `[POST] /v1/s1/e8/solution`
-- ¡No olvides consultar la [Documentación](https://makers-challenge.altscore.ai/docs)!
+- API para intentar abrir una puerta: [POST] /v1/s1/e8/actions/door (No siempre recibirás un status 200, pero los errores te dan pistas).
+- Envía tu respuesta aquí: [POST] /v1/s1/e8/solution
+- Consulta la Documentación para más detalles.
+
+**¡Prepárate a demostrar a Altwarts que tienes la magia! 🚀**
 
 ## Solution
 
-### Step 1: Create the teapot endpoint
-
-The first clue is that we need a "teapot" endpoint. HTTP status code 418 "I'm a teapot" is a famous April Fools' joke from [RFC 2324](https://datatracker.ietf.org/doc/html/rfc2324).
-
-```ts
-// app/api/teapot/route.ts
-
-import { NextResponse } from 'next/server'
-
-export async function POST() {
-  return new NextResponse('I am a teapot', { status: 418 })
-}
-```
-
-### Step 2: Discover the timing pattern
+### Step 1: Discover the timing pattern
 
 When testing the door endpoint in the Swagger UI, I noticed something interesting:
 
@@ -86,7 +83,7 @@ The pattern became clear: you need to call the door at specific minutes, when th
 
 Each successful call sets a `gryffindor` cookie that contains part of the message!
 
-### Step 3: Collect the cookies
+### Step 2: Collect the cookies
 
 I wrote a script to automate the cookie collection:
 
@@ -185,7 +182,7 @@ The key insight is:
 3. The cookie values are base64-encoded fragments
 4. When concatenated and decoded, they reveal the secret message
 
-### Step 4: Apply the "revelio" spell
+### Step 3: Apply the "revelio" spell
 
 The message says to use "revelio" to decode. In this case, it means Base64 decoding:
 
@@ -195,7 +192,7 @@ const decodedMessage = Buffer.from(cookieString, 'base64').toString('utf-8')
 console.log(decodedMessage) // The secret message!
 ```
 
-### Step 5: Submit the answer
+### Step 4: Submit the answer
 
 After decoding the message, submit it to the solution endpoint:
 
@@ -220,9 +217,8 @@ And the response is:
 
 ### Key learnings
 
-1. **HTTP 418** - The "I'm a teapot" status code is a real HTTP status code, originally an April Fools' joke. It is so funny, I learned about it a long time ago.
-2. **Cookie chaining** - Each cookie value depends on the previous one, like a linked list
-3. **Timing matters** - The door only responds correctly at specific times (every minute on the minute)
-4. **Base64 encoding** - "revelio" is a hint to decode/reveal the hidden message
+1. **Cookie chaining** - Each cookie value depends on the previous one, like a linked list
+2. **Timing matters** - The door only responds correctly at specific times (every minute on the minute)
+3. **Base64 encoding** - "revelio" is a hint to decode/reveal the hidden message
 
 **TADA!** 🎉

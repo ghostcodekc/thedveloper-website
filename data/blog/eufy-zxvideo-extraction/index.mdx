@@ -159,6 +159,25 @@ for i in range(len(data) - 4):
 
 These **238 bytes** work for ALL videos from the same camera since they use the same encoding settings.
 
+#### Automating Header Extraction
+
+Rather than manually extracting headers from each app-downloaded video, there's a helper utility available: `generate_headers.py`. This script automates the extraction process by:
+
+1. Demuxing the MP4 to a raw Annex-B H.265 bitstream using ffmpeg
+2. Scanning through the bitstream for the first IDR frame (NAL type 19 or 20)
+3. Extracting all headers (VPS/SPS/PPS) that appear before the first IDR frame
+4. Saving them to a binary file for later use
+
+**Usage**:
+
+```bash
+python generate_headers.py --file app_downloaded_video.mp4
+```
+
+This creates `app_downloaded_video_hevc_headers.bin` containing the extracted headers. Since all videos from the same camera use identical encoding settings, you only need to run this once per camera.
+
+*Attribution: Thanks to [@ghostcodekc](https://github.com/ghostcodekc) for the `generate_headers.py` utility.*
+
 ### Finding the Audio
 
 After getting video working, I noticed... no audio. The videos should have sound!

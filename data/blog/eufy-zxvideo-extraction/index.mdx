@@ -168,10 +168,10 @@ Rather than manually extracting headers from each app-downloaded video, there's 
 3. Extracting all headers (VPS/SPS/PPS) that appear before the first IDR frame
 4. Saving them to a binary file for later use
 
-**Usage**:
+**Usage** (requires [`ffmpeg`](https://ffmpeg.org/) on your `PATH`):
 
 ```bash
-python generate_headers.py --file app_downloaded_video.mp4
+python3 generate_headers.py --file app_downloaded_video.mp4
 ```
 
 This creates `app_downloaded_video_hevc_headers.bin` containing the extracted headers. Since all videos from the same camera use identical encoding settings, you only need to run this once per camera.
